@@ -40,26 +40,30 @@ module Impl =
 open Impl
 open Hopac
 open Suave
-open Suave.Types
 open Suave.Model
-open Suave.Http
-open Suave.Http.Applicatives
-open Suave.Http.RequestErrors
-open Suave.Http.Successful
+open Suave.Filters
+open Suave.RequestErrors
+open Suave.Successful
+open Suave.Operators
 
 let api (logger : Logger) (verbatimPath : string option) : WebPart =
   let verbatimPath = defaultArg verbatimPath "/i/logary/loglines"
   let getMsg = sprintf "You can post a JSON structure to: %s" verbatimPath
+
+  let readJson =
+    Lens.get HttpRequest.rawForm_
+    >> UTF8.toString
+    >> Json.tryParse
+    >> Choice.bind Json.tryDeserialize
 
   let jsonMsg msg =
     { message = msg; id = r.NextUInt64() }
     |> Json.serialize
     |> Json.format
 
-  path verbatimPath >>= choose [
-    GET >>= OK (jsonMsg getMsg)
-    POST >>= Binding.bindReq
-              (Lens.get HttpRequest.rawForm_ >> UTF8.toString >> Json.tryParse >> Choice.bind Json.tryDeserialize)
+  path verbatimPath >=> choose [
+    GET >=> OK (jsonMsg getMsg)
+    POST >=> Binding.bindReq readJson
               (fun msg ->
                 Logger.log logger msg |> queue
                 CREATED (jsonMsg "Created"))
